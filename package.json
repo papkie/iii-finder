@@ -16,6 +16,7 @@
     "get-pixels": "^3.3.0"
   },
   "devDependencies": {
+    "@types/node": "^8.0.34",
     "nodemon": "^1.12.1"
   }
 }
