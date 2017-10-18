@@ -1,77 +1,94 @@
 import * as getPixels from "get-pixels"
 import * as cluster from "cluster"
 
-function getPixelArray(imagePath: string): Promise<any> {
-    return new Promise((resolve, reject) => {
-        getPixels(imagePath, (err, pixels) => {
-            if (err) {
-                return reject(err)
-            }
-            resolve(pixels)
+export class ImageFinder {
+    imageToFindPath: string
+    imageToFindInPath: string
+    tolerance: number
+    tolerancePixels: number
+    parsedToFindArray: any[]
+    imageToFind: any
+    imageSource: any
+    constructor(imageToFindPath: string, imageToFindInPath: string, tolerance: number = 0) {
+        this.imageToFindPath = imageToFindPath
+        this.imageToFindInPath = imageToFindInPath
+        this.tolerance = tolerance
+        this.parsedToFindArray = []
+    }
+
+    getPixelArray(imagePath: string): Promise<any> {
+        return new Promise((resolve, reject) => {
+            getPixels(imagePath, (err, pixels) => {
+                if (err) {
+                    return reject(err)
+                }
+                resolve(pixels)
+            })
         })
-    })
-}
+    }
 
-function checkRect(cutImage, parsedToFindArray) {
-    let index = 0
-    for(let iShape = 0; iShape<cutImage.shape[0]; ++iShape) {
-        for(let jShape = 0; jShape<cutImage.shape[1]; ++jShape) {
-            const r = cutImage.get(iShape, jShape, 0)
-            const g = cutImage.get(iShape, jShape, 1)
-            const b = cutImage.get(iShape, jShape, 2)
-            if (parsedToFindArray[index][0] !== r || parsedToFindArray[index][1] !== g || parsedToFindArray[index][2] !== b) {
-                return false
+    checkRect(cutImage) {
+        let index = 0
+        let invalidPixels = 0
+        for(let iShape = 0; iShape<cutImage.shape[0]; ++iShape) {
+            for(let jShape = 0; jShape<cutImage.shape[1]; ++jShape) {
+                const r = cutImage.get(iShape, jShape, 0)
+                const g = cutImage.get(iShape, jShape, 1)
+                const b = cutImage.get(iShape, jShape, 2)
+                if (this.parsedToFindArray[index][0] !== r || this.parsedToFindArray[index][1] !== g || this.parsedToFindArray[index][2] !== b) {
+                    invalidPixels++
+                    if (invalidPixels > this.tolerancePixels) {
+                        return false
+                    }
+                }
+                index++;
             }
-            index++;
         }
+        return true
     }
-    return true
-}
 
-function checkY(i, imageSource, imageToFind, parsedToFindArray) {
-    const [sizeX, sizeY] = imageToFind.shape
-    const yMax = imageSource.shape[1] - sizeY
-    for (let j = 0; j < yMax; j++) {
-        let cutImage = imageSource.hi(sizeX+i,sizeY+j).lo(i, j)
-        if (checkRect(cutImage, parsedToFindArray)) {
-            return {x: i, y: j}
+    checkY(i) {
+        const [sizeX, sizeY] = this.imageToFind.shape
+        const yMax = this.imageSource.shape[1] - sizeY
+        for (let j = 0; j < yMax; j++) {
+            let cutImage = this.imageSource.hi(sizeX+i,sizeY+j).lo(i, j)
+            if (this.checkRect(cutImage)) {
+                return {x: i as number, y: j as number}
+            }
         }
+        return false
     }
-    return false
-}
 
-async function findImage(image, source) {
-    const imageToFind = await getPixelArray(image)
-    const imageSource = await getPixelArray(source)
-    const [sizeX, sizeY] = imageToFind.shape
-    const [sourceSizeX, ySource] = imageSource.shape
-    if (sourceSizeX < sizeX || ySource < sizeY) {
-        throw new Error('Source image cannot be smaller')
-    }
-    const parsedToFindArray = []
-    for(let iShape = 0; iShape<imageToFind.shape[0]; ++iShape) {
-        for(let jShape=0; jShape<imageToFind.shape[1]; ++jShape) {
-            const r = imageToFind.get(iShape, jShape, 0)
-            const g = imageToFind.get(iShape, jShape, 1)
-            const b = imageToFind.get(iShape, jShape, 2)
-            parsedToFindArray.push([r,g,b])
+    //Tolerance - percent of invalid pixels
+    async findImage() {
+        this.imageToFind = await this.getPixelArray(this.imageToFindPath)
+        this.imageSource = await this.getPixelArray(this.imageToFindInPath)
+        const [sizeX, sizeY] = this.imageToFind.shape
+        const [sourceSizeX, ySource] = this.imageSource.shape
+        if (sourceSizeX < sizeX || ySource < sizeY) {
+            throw new Error('Source image cannot be smaller')
         }
-    }
-    const xMax = sourceSizeX - sizeX
-    const yMax = ySource - sizeY
-    for (let i = 0; i < xMax; i++) {
-        const result = checkY(i, imageSource, imageToFind, parsedToFindArray)
-        if (result) {
-            return result
+
+        if (this.parsedToFindArray.length === 0) {
+            for(let iShape = 0; iShape<this.imageToFind.shape[0]; ++iShape) {
+                for(let jShape=0; jShape<this.imageToFind.shape[1]; ++jShape) {
+                    const r = this.imageToFind.get(iShape, jShape, 0)
+                    const g = this.imageToFind.get(iShape, jShape, 1)
+                    const b = this.imageToFind.get(iShape, jShape, 2)
+                    this.parsedToFindArray.push([r,g,b])
+                }
+            }
         }
+        this.tolerancePixels = sizeX*sizeY * (this.tolerance/100)
+        const xMax = sourceSizeX - sizeX
+        const yMax = ySource - sizeY
+        for (let i = 0; i < xMax; i++) {
+            const result = this.checkY(i)
+            if (result) {
+                return result
+            }
+        }
+        return false
     }
-    return false
-}
 
-async function test() {
-    console.time('test')
-    console.log(await findImage("assets/find.png", "assets/source.png"))
-    console.timeEnd('test')
 }
-
-test()
